@@ -183,7 +183,7 @@ def test_page_retire_shows_plan_and_nav(client_with_run):
     response = client_with_run.get("/retire")
     assert response.status_code == 200
     assert 'data-nav="retire"' in response.text
-    assert response.text.count("data-nav=") == 7
+    assert response.text.count("data-nav=") == 8
     assert "迁移顺序" in response.text
     assert "R_CYCLE_BLOCKED" in response.text
 

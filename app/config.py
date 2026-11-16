@@ -18,10 +18,11 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CHINA_TZ = dt.timezone(dt.timedelta(hours=8), "Asia/Shanghai")
 UTC = dt.timezone.utc
 
-RULE_VERSION = "metricreg/1.3.0"
+RULE_VERSION = "metricreg/1.4.0"
 DECIMAL_QUANT = Decimal("0.01")
 
-STAGES = ("ingest", "syntax", "diagnose", "graph", "version", "impact", "retire")
+STAGES = ("ingest", "syntax", "diagnose", "graph", "version", "impact", "retire",
+          "identity")
 STAGE_LABELS = {
     "ingest": "接入",
     "syntax": "语法",
@@ -30,6 +31,7 @@ STAGE_LABELS = {
     "version": "版本",
     "impact": "影响面",
     "retire": "下线",
+    "identity": "身份",
 }
 STAGE_FLOW = "接入 → 语法 → 诊断 → 依赖图 → 版本 → 影响面 → 下线"
 
@@ -97,6 +99,17 @@ DIAG_ORDER = (
     "R_ISOLATED_SKIPPED",
     "B_IDEMPOTENT_REPLAY", "E_BOM_STRIPPED",
     "E_CRLF_NORMALIZED", "E_CHARSET_FALLBACK",
+    # M8 身份：冲突类在前，提示与记录在后；同一批次先看阻断再看说明
+    "I_ENTRY_INVALID", "I_INTERVAL_INVERTED", "I_IDENTITY_OVERLAP",
+    "I_NAME_REUSE_OVERLAP", "I_ROUND_CONFLICT", "I_DELIVERY_CONFLICT",
+    "I_ACCOUNT_UNBALANCED", "I_ROUND_INCOMPLETE", "I_REF_UNMAPPED",
+    "I_REPORT_UNMAPPED", "I_REPORT_UNREGISTERED", "I_REPORT_TIME_INVALID",
+    "I_DEFINITION_DUPLICATE",
+    "I_NO_LIVE", "I_METRIC_UNMAPPED", "I_IDENTITY_NO_DEFINITION",
+    "I_NAME_STALE", "I_ALIAS_SELF_REF", "I_DEFINITION_ALIAS",
+    "I_ENTRY_DUPLICATE", "I_NAME_REUSED",
+    "I_IDENTITY_RENAMED", "I_ROUND_PROMOTED", "I_ROUND_REPLAY",
+    "I_ROUND_SUPERSEDED",
 )
 
 # 下线计划：迁移顺序与环计数规则，页面、导出、测试共用同一份说明

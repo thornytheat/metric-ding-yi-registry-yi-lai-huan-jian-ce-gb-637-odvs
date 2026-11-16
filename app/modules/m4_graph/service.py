@@ -26,6 +26,7 @@ def parse_reports_text(text: str) -> list[dict]:
             "report_name": (raw.get("report_name") or report_id).strip(),
             "metric": metric,
             "weight": weight,
+            "published_on": (raw.get("published_on") or "").strip(),
             "line_no": index,
         })
     return rows

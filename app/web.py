@@ -25,6 +25,7 @@ NAV = (
     ("/versions", "版本", "versions"),
     ("/impact", "影响", "impact"),
     ("/retire", "下线", "retire"),
+    ("/identity", "身份", "identity"),
 )
 STATUS_LABELS = {
     "done": "完成", "failed": "失败", "running": "运行中",
@@ -32,8 +33,11 @@ STATUS_LABELS = {
     "OK": "有效", "OVERLAP": "区间重叠", "INVERTED": "起止倒挂",
     "BAD_FROM": "起始无效", "UNKNOWN": "未注册",
     "BLOCK": "阻断", "REVIEW": "复核", "INFO": "记录",
+    "pending": "待收齐", "promoted": "已切换", "conflict": "冲突",
+    "bound": "已绑定", "unmapped": "未映射", "unregistered": "未注册",
 }
-KIND_LABELS = {"metric": "指标", "field": "字段", "dim": "维度", "report": "报表"}
+KIND_LABELS = {"metric": "指标", "field": "字段", "dim": "维度", "report": "报表",
+               "identity": "身份"}
 
 
 @dataclass

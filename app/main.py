@@ -16,12 +16,13 @@ from .modules.m4_graph import handler as m4_handler
 from .modules.m5_versions import handler as m5_handler
 from .modules.m6_impact import handler as m6_handler
 from .modules.m7_retire import handler as m7_handler
+from .modules.m8_identity import handler as m8_handler
 from .store import Store
 
 MODULES = (m1_handler, m2_handler, m3_handler, m4_handler, m5_handler,
-           m6_handler, m7_handler)
+           m6_handler, m7_handler, m8_handler)
 PAGE_ROUTES = ("/", "/contract", "/diagnostics", "/graph", "/versions",
-               "/impact", "/retire")
+               "/impact", "/retire", "/identity")
 
 
 def create_app(settings: config.Settings | None = None) -> FastAPI:

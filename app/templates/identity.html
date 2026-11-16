@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="sec">
+  <h2>现网映射</h2>
+  {% if payload.live %}
+  <dl class="kv">
+    <dt>批次</dt><dd class="mono">{{ payload.round_id }}</dd>
+    <dt>指纹</dt><dd class="mono">{{ payload.digest | short(16) }}</dd>
+    <dt>切换于</dt><dd class="mono">{{ payload.promoted_at | ts }}</dd>
+    <dt>评估日</dt><dd class="mono">{{ payload.eval_date }}</dd>
+    <dt>身份</dt><dd>{{ payload.counters.identities }}</dd>
+    <dt>有当期定义</dt><dd>{{ payload.counters.identities_with_definition }}</dd>
+    <dt>边</dt><dd>{{ payload.counters.edges }}</dd>
+    <dt>环</dt><dd class="{% if payload.counters.cycles %}unbalanced{% else %}balanced{% endif %}">{{ payload.counters.cycles }}</dd>
+    <dt>报表绑定</dt><dd>{{ payload.counters.reports_bound }} / {{ payload.counters.reports }}</dd>
+    <dt>四账</dt><dd class="{% if payload.accounts.all_balanced %}balanced{% else %}unbalanced{% endif %}">{% if payload.accounts.all_balanced %}平{% else %}不平{% endif %}</dd>
+  </dl>
+  <div class="cmd" style="margin-top:8px">
+    <pre>curl -s "127.0.0.1:18206/api/identity/lookup?name=销售额&amp;published_on=2026-03-01"</pre>
+    <button class="copy" type="button" data-copy>复制</button>
+  </div>
+  {% else %}
+  <p class="empty">还没有整批一致的身份映射。下方批次收齐后自动切换。</p>
+  {% endif %}
+</section>
+
+<div class="sec-rule" aria-hidden="true"></div>
+
+<section class="sec">
+  <h2>批次</h2>
+  {% if payload.rounds %}
+  <table class="tbl">
+    <thead><tr><th>批次</th><th>状态</th><th>已收</th><th>缺少</th><th class="num">条目</th></tr></thead>
+    <tbody>
+      {% for row in payload.rounds %}
+      <tr>
+        <td class="mono">{{ row.round_id }}</td>
+        <td>{% if row.status == 'promoted' %}<span class="mark mark-ok">✓</span>{% elif row.status == 'conflict' %}<span class="mark mark-bad">x</span>{% else %}<span class="mark mark-warn">!</span>{% endif %} {{ row.status | status }}</td>
+        <td class="mono">{{ row.delivered_sources | join(', ') or '—' }}</td>
+        <td class="mono">{{ row.missing_sources | join(', ') or '—' }}</td>
+        <td class="num">{{ row.entries }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% elif payload.live %}
+  <p class="empty">批次列表见 <span class="mono">/api/identity/rounds</span>。</p>
+  {% else %}
+  <p class="empty">还没有批次。</p>
+  {% endif %}
+</section>
+
+{% if payload.live %}
+<div class="sec-rule" aria-hidden="true"></div>
+
+<section class="sec">
+  <h2>身份</h2>
+  <table class="tbl">
+    <thead><tr><th>身份</th><th>当期名称</th><th>历史名称</th><th>当期定义</th></tr></thead>
+    <tbody>
+      {% for row in payload.identities %}
+      <tr>
+        <td class="mono">{{ row.identity }}</td>
+        <td>{{ row.name_today or '—' }}</td>
+        <td class="mono cut">{% for seg in row.names %}{{ seg.name }} [{{ seg.valid_from }}~{{ seg.valid_to if seg.valid_to != '9999-12-31' else '未关闭' }}]{% if not loop.last %} · {% endif %}{% endfor %}</td>
+        <td>{% if row.has_definition %}<span class="mark mark-ok">✓</span> {{ row.definition_name }}{% else %}<span class="mark mark-dim">·</span> 无{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<div class="sec-rule" aria-hidden="true"></div>
+
+<section class="sec">
+  <h2>报表绑定</h2>
+  <table class="tbl">
+    <thead><tr><th>报表</th><th>名称</th><th>发布时间</th><th>解析于</th><th>身份</th><th class="num">权重</th><th>状态</th></tr></thead>
+    <tbody>
+      {% for row in payload.reports %}
+      <tr>
+        <td class="mono">{{ row.report_id }}</td>
+        <td>{{ row.report_name }}</td>
+        <td class="mono">{{ row.published_on or '—' }}</td>
+        <td class="mono">{{ row.resolved_on }}</td>
+        <td class="mono">{{ row.identity or '—' }}</td>
+        <td class="num">{{ row.weight | dec2 }}</td>
+        <td>{% if row.status == 'bound' %}<span class="mark mark-ok">✓</span>{% else %}<span class="mark mark-warn">!</span>{% endif %} {{ row.status | status }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<div class="sec-rule" aria-hidden="true"></div>
+
+<section class="sec">
+  <h2>身份影响面</h2>
+  <div class="cmd">
+    <pre>curl -s "127.0.0.1:18206/api/identity/impact?identity={{ payload.identities[0].identity if payload.identities else '' }}"</pre>
+    <button class="copy" type="button" data-copy>复制</button>
+  </div>
+  {% if impact %}
+  <dl class="kv" style="margin-top:10px">
+    <dt>目标</dt><dd class="mono">{{ impact.identity }}</dd>
+    <dt>下游</dt><dd>{{ impact.downstream_count }}</dd>
+    <dt>报表</dt><dd>{{ impact.report_count }}</dd>
+    <dt>权重合计</dt><dd>{{ impact.weight_sum | dec2 }}</dd>
+    <dt>影响分</dt><dd class="big">{{ impact.score | dec2 }}</dd>
+  </dl>
+  <p class="mono" style="margin:6px 0 0">{{ impact.downstream | join(' · ') or '无下游身份' }}</p>
+  {% endif %}
+</section>
+
+<div class="sec-rule" aria-hidden="true"></div>
+
+<section class="sec">
+  <h2>诊断</h2>
+  {% if payload.diagnostics %}
+  <table class="tbl">
+    <thead><tr><th>原因码</th><th>级别</th><th>身份</th><th>名称</th><th>结论</th></tr></thead>
+    <tbody>
+      {% for row in payload.diagnostics %}
+      <tr>
+        <td class="mono">{{ row.code }}</td>
+        <td>{% if row.level == 'error' %}<span class="mark mark-bad">x</span>{% elif row.level == 'warn' %}<span class="mark mark-warn">!</span>{% else %}<span class="mark mark-info">.</span>{% endif %} {{ row.level | level }}</td>
+        <td class="mono">{{ row.identity or '—' }}</td>
+        <td>{{ row.name or '—' }}</td>
+        <td>{{ row.detail }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">没有诊断。</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

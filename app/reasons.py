@@ -166,6 +166,82 @@ REASONS = {
     "B_IDEMPOTENT_REPLAY": _r(
         "B_IDEMPOTENT_REPLAY", INFO, "ingest",
         "输入摘要命中已完成批次，复用结果", "同一输入重跑不新增行"),
+    # ---- M8 指标身份与名称复用 ----
+    "I_ENTRY_INVALID": _r(
+        "I_ENTRY_INVALID", ERROR, "identity",
+        "映射条目缺字段或字段不合法", "identity/name/valid_from 必须齐全且名称是合法标识符"),
+    "I_INTERVAL_INVERTED": _r(
+        "I_INTERVAL_INVERTED", ERROR, "identity",
+        "名称区间起止倒挂", "valid_to 必须晚于 valid_from，留空表示未关闭"),
+    "I_IDENTITY_OVERLAP": _r(
+        "I_IDENTITY_OVERLAP", ERROR, "identity",
+        "同一身份的两个名称区间重叠", "同一时刻一个身份只能有一个名称"),
+    "I_NAME_REUSE_OVERLAP": _r(
+        "I_NAME_REUSE_OVERLAP", ERROR, "identity",
+        "同一名称在同一时刻属于两个身份", "名称复用必须前后衔接，不能并行占用"),
+    "I_ROUND_CONFLICT": _r(
+        "I_ROUND_CONFLICT", ERROR, "identity",
+        "整批映射冲突，未切换现网", "修正冲突后换新批次号重新投递"),
+    "I_DELIVERY_CONFLICT": _r(
+        "I_DELIVERY_CONFLICT", ERROR, "identity",
+        "同一批次同一来源重复投递了不同内容", "同批重试只接受原样内容，改内容请换批次号"),
+    "I_ACCOUNT_UNBALANCED": _r(
+        "I_ACCOUNT_UNBALANCED", ERROR, "identity",
+        "身份账目不平", "检查身份、边与报表的映射是否漏项"),
+    "I_ROUND_INCOMPLETE": _r(
+        "I_ROUND_INCOMPLETE", WARN, "identity",
+        "批次尚未收齐，保留上一版本", "等其余 BI 投递到齐后再自动切换"),
+    "I_REF_UNMAPPED": _r(
+        "I_REF_UNMAPPED", WARN, "identity",
+        "引用名称在该定义发布的时点没有身份", "补一条覆盖该时点的名称映射"),
+    "I_REPORT_UNMAPPED": _r(
+        "I_REPORT_UNMAPPED", WARN, "identity",
+        "报表名称在发布时间没有身份", "补映射或人工确认报表口径"),
+    "I_REPORT_UNREGISTERED": _r(
+        "I_REPORT_UNREGISTERED", WARN, "identity",
+        "报表引用的指标既无映射也无定义", "先登记指标，或把报表下架"),
+    "I_REPORT_TIME_INVALID": _r(
+        "I_REPORT_TIME_INVALID", WARN, "identity",
+        "报表发布时间不是合法日期", "统一成 YYYY-MM-DD 后重试"),
+    "I_DEFINITION_DUPLICATE": _r(
+        "I_DEFINITION_DUPLICATE", WARN, "identity",
+        "同一身份有两条定义", "保留当期名称对应的一条，另一条视为历史遗留"),
+    "I_METRIC_UNMAPPED": _r(
+        "I_METRIC_UNMAPPED", INFO, "identity",
+        "指标名称没有任何映射，按名称本身作身份", "登记更名或复用映射后口径更精确"),
+    "I_NO_LIVE": _r(
+        "I_NO_LIVE", WARN, "identity",
+        "还没有整批一致的身份映射", "先投递齐一个批次"),
+    "I_ENTRY_DUPLICATE": _r(
+        "I_ENTRY_DUPLICATE", INFO, "identity",
+        "完全相同的映射条目已合并", "同身份同名称同区间只保留一条"),
+    "I_NAME_REUSED": _r(
+        "I_NAME_REUSED", INFO, "identity",
+        "名称被后来的身份复用", "旧报表按发布时间解析到旧身份，不并入新身份"),
+    "I_IDENTITY_RENAMED": _r(
+        "I_IDENTITY_RENAMED", INFO, "identity",
+        "同一身份改了名称", "身份不变，按名称区间解析历史口径"),
+    "I_ROUND_PROMOTED": _r(
+        "I_ROUND_PROMOTED", INFO, "identity",
+        "整批一致，已原子切换现网", "现网依赖与影响面整体替换为新版本"),
+    "I_ROUND_REPLAY": _r(
+        "I_ROUND_REPLAY", INFO, "identity",
+        "同一批同来源原样重试，不新增结果", "重试命中已存投递，直接返回原状态"),
+    "I_ROUND_SUPERSEDED": _r(
+        "I_ROUND_SUPERSEDED", INFO, "identity",
+        "现网已切换到更晚的批次", "重放旧批次不覆盖现网，避免回退"),
+    "I_IDENTITY_NO_DEFINITION": _r(
+        "I_IDENTITY_NO_DEFINITION", INFO, "identity",
+        "身份有名称映射但没有当前定义", "旧口径仍可解析，当前定义可能在其它 BI"),
+    "I_NAME_STALE": _r(
+        "I_NAME_STALE", INFO, "identity",
+        "定义使用的名称已不在当期", "按该名称最后所属的身份解析，避免并入复用者"),
+    "I_ALIAS_SELF_REF": _r(
+        "I_ALIAS_SELF_REF", INFO, "identity",
+        "迁移别名指向同一身份的旧名称", "同一身份的两个名称互指不构成自环"),
+    "I_DEFINITION_ALIAS": _r(
+        "I_DEFINITION_ALIAS", INFO, "identity",
+        "同一身份的新旧定义并存，已保留当期名称的一条", "迁移完成后删掉旧名称的定义"),
 }
 
 

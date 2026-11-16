@@ -61,13 +61,28 @@ CREATE TABLE IF NOT EXISTS versions (
 );
 CREATE TABLE IF NOT EXISTS reports (
     batch_id TEXT NOT NULL, report_id TEXT NOT NULL, report_name TEXT NOT NULL,
-    metric TEXT NOT NULL, weight TEXT NOT NULL, resolved INTEGER NOT NULL DEFAULT 1
+    metric TEXT NOT NULL, weight TEXT NOT NULL, resolved INTEGER NOT NULL DEFAULT 1,
+    published_on TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS totals (
     batch_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS manifests (
     batch_id TEXT PRIMARY KEY, json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS identity_deliveries (
+    round_id TEXT NOT NULL, source TEXT NOT NULL, digest TEXT NOT NULL,
+    entries_json TEXT NOT NULL, expected_json TEXT NOT NULL,
+    reports_json TEXT NOT NULL DEFAULT '[]',
+    received_at TEXT NOT NULL, seq INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (round_id, source)
+);
+CREATE INDEX IF NOT EXISTS idx_identity_round ON identity_deliveries(round_id);
+CREATE TABLE IF NOT EXISTS identity_live (
+    slot INTEGER PRIMARY KEY CHECK (slot = 1),
+    round_id TEXT NOT NULL, digest TEXT NOT NULL, promoted_at TEXT NOT NULL,
+    opened_seq INTEGER NOT NULL DEFAULT 0,
+    snapshot_json TEXT NOT NULL
 );
 """
 
@@ -78,6 +93,20 @@ class Store:
         Path(self.path).resolve().parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as conn:
             conn.executescript(SCHEMA)
+            self._migrate(conn)
+
+    @staticmethod
+    def _migrate(conn) -> None:
+        """老库补列：只加不删，重复执行安全（SQLite 无 IF NOT EXISTS 列语法）。"""
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(reports)")}
+        if "published_on" not in columns:
+            conn.execute(
+                "ALTER TABLE reports ADD COLUMN published_on TEXT NOT NULL DEFAULT ''")
+        columns = {row["name"]
+                   for row in conn.execute("PRAGMA table_info(identity_live)")}
+        if "opened_seq" not in columns:
+            conn.execute(
+                "ALTER TABLE identity_live ADD COLUMN opened_seq INTEGER NOT NULL DEFAULT 0")
 
     @contextmanager
     def connect(self):
@@ -178,10 +207,11 @@ class Store:
                   v["author"], v["submitted_at"], v["status"], v.get("note", ""))
                  for v in payload["versions"]])
             conn.executemany(
-                """INSERT INTO reports (batch_id,report_id,report_name,metric,weight,resolved)
-                   VALUES (?,?,?,?,?,?)""",
+                """INSERT INTO reports (batch_id,report_id,report_name,metric,weight,
+                     resolved,published_on) VALUES (?,?,?,?,?,?,?)""",
                 [(batch_id, r["report_id"], r["report_name"], r["metric"],
-                  str(r["weight"]), 1 if r["resolved"] else 0) for r in payload["reports"]])
+                  str(r["weight"]), 1 if r["resolved"] else 0,
+                  r.get("published_on", "")) for r in payload["reports"]])
             for key, value in payload["totals"].items():
                 conn.execute("INSERT INTO totals (batch_id,key,value) VALUES (?,?,?)",
                              (batch_id, key, str(value)))
@@ -308,6 +338,83 @@ class Store:
     def _all(self, sql: str, args: tuple) -> list[dict]:
         with self.connect() as conn:
             return [dict(r) for r in conn.execute(sql, args).fetchall()]
+
+    # ---------- M8 身份映射：分批投递与现网槽位 ----------
+    def get_delivery(self, round_id: str, source: str) -> dict | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM identity_deliveries WHERE round_id=? AND source=?",
+                (round_id, source)).fetchone()
+        return self._delivery_row(row) if row else None
+
+    def list_deliveries(self, round_id: str | None = None) -> list[dict]:
+        with self.connect() as conn:
+            if round_id is None:
+                rows = conn.execute(
+                    "SELECT * FROM identity_deliveries ORDER BY round_id, seq, source"
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM identity_deliveries WHERE round_id=? "
+                    "ORDER BY seq, source", (round_id,)).fetchall()
+        return [self._delivery_row(row) for row in rows]
+
+    def round_ids(self) -> list[str]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT round_id, MAX(seq) AS last_seq FROM identity_deliveries "
+                "GROUP BY round_id ORDER BY last_seq, round_id").fetchall()
+        return [row["round_id"] for row in rows]
+
+    def next_delivery_seq(self) -> int:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(MAX(seq), 0) AS n FROM identity_deliveries").fetchone()
+        return int(row["n"]) + 1
+
+    def save_delivery(self, row: dict) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """INSERT INTO identity_deliveries
+                     (round_id, source, digest, entries_json, expected_json,
+                      reports_json, received_at, seq)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (row["round_id"], row["source"], row["digest"],
+                 _j(row["entries"]), _j(row.get("expected_sources", [])),
+                 _j(row.get("reports", [])), row["received_at"], row["seq"]))
+
+    def load_live(self) -> dict | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM identity_live WHERE slot=1").fetchone()
+        if row is None:
+            return None
+        return {"round_id": row["round_id"], "digest": row["digest"],
+                "promoted_at": row["promoted_at"], "seq": row["opened_seq"],
+                "snapshot": json.loads(row["snapshot_json"])}
+
+    def promote_live(self, *, round_id: str, digest: str, promoted_at: str,
+                     snapshot: dict, seq: int = 0) -> None:
+        """单条 UPSERT：现网槽位要么完整是旧版，要么完整是新版，没有中间态。"""
+        with self.connect() as conn:
+            conn.execute(
+                """INSERT INTO identity_live (slot, round_id, digest, promoted_at,
+                     opened_seq, snapshot_json) VALUES (1,?,?,?,?,?)
+                   ON CONFLICT(slot) DO UPDATE SET round_id=excluded.round_id,
+                     digest=excluded.digest, promoted_at=excluded.promoted_at,
+                     opened_seq=excluded.opened_seq,
+                     snapshot_json=excluded.snapshot_json""",
+                (round_id, digest, promoted_at, seq,
+                 json.dumps(snapshot, ensure_ascii=False)))
+
+    @staticmethod
+    def _delivery_row(row) -> dict:
+        return {"round_id": row["round_id"], "source": row["source"],
+                "digest": row["digest"],
+                "entries": json.loads(row["entries_json"]),
+                "expected_sources": json.loads(row["expected_json"]),
+                "reports": json.loads(row["reports_json"] or "[]"),
+                "received_at": row["received_at"], "seq": row["seq"]}
 
 
 def _j(value) -> str:

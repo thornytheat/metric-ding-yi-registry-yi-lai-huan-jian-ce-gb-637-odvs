@@ -1,6 +1,6 @@
 # 深度登记 metricreg（指标定义注册与依赖环检测）
 
-- 规模：中型（7 个功能模块 / 7 个页面 / 81 个文件 / 101 条测试）
+- 规模：中型（8 个功能模块 / 8 个页面 / 91 个文件 / 133 条测试）
 - 核心规则一：**DSL 解析与登记**——一行一条 `name = expr [where …] [group by …] [depends: …]`，先做全角归一，再词法/语法分析；结构扫描与语法解析两条独立路径，检出项按固定优先级排序，规则书写顺序不影响结论。
 - 核心规则二：**依赖成环检测**——按指标→指标边建图，用显式栈迭代 Tarjan 求强连通分量；分量大小 >1 或单点自环即判环，给出环路路径；同名指标按聚合/过滤/分组差异分三级冲突，保留行号最小的一条。
 - 核心规则三：**下线与迁移次序**——环按分量计数（一个环只出一条，TRAP-27），单点只有自环才算环（孤立指标不进环，TRAP-28）；迁移次序按「依赖方先迁、被依赖方后下线」做确定性 Kahn 排序，环内指标进阻断表；同名指标按评估日生效版本说清下的是哪一版。
@@ -17,6 +17,7 @@
 | M5 版本区间与批次 | 查版本台账、提交新版、拒绝陈旧提交、看批次历史 | GET /api/versions、POST /api/versions/submit、GET /api/batches、页面 /versions | `app/modules/m5_versions/intervals.py` `app/modules/m5_versions/stale.py` `app/modules/m5_versions/batches.py` | `tests/test_versions.py` |
 | M6 影响面与导出 | 算影响分、核四账、导出指标/边/冲突/清单 | GET /api/impact、GET /api/reconcile、GET /api/export/*、页面 /impact | `app/modules/m6_impact/impact.py` `app/modules/m6_impact/export_out.py` `app/modules/m6_impact/json_out.py` | `tests/test_impact.py` |
 | M7 下线影响 | 选下线指标，看受影响面、迁移次序与阻断项，导出清单 | GET /api/retire、POST /api/retire、GET /api/retire/order.csv、页面 /retire | `app/modules/m7_retire/cycles.py` `app/modules/m7_retire/order.py` `app/modules/m7_retire/plan.py` `app/modules/m7_retire/service.py` | `tests/test_retire.py` `tests/test_retire_cycles.py` `tests/test_retire_versions.py` |
+| M8 身份与名称复用 | 多个 BI 分批投递名称映射，整批一致后原子切换现网；按「名称+发布时间」回溯旧报表口径 | POST /api/identity/deliver、GET /api/identity/live、/api/identity/round、/api/identity/impact、/api/identity/reports、/api/identity/lookup、/api/identity/rounds、页面 /identity | `app/modules/m8_identity/model.py` `app/modules/m8_identity/snapshot.py` `app/modules/m8_identity/service.py` | `tests/test_identity.py` |
 
 端到端：`tests/test_e2e.py`（样例 → 接入 → 诊断 → 图 → 版本 → 影响面 → 导出，含 4xx 失败输入与幂等重跑）；
 下线计划走同一批次数据：`tests/test_retire.py`（环最小化、阻断项、版本含义、接口与页面）。
@@ -37,6 +38,10 @@
 | TRAP-26 | 两个组同时改同一指标，后提交的版本号更小 | 后提交无条件覆盖，先改的被静默丢掉 | 版本号必须大于库中最新值，否则 409 `V_STALE_SUBMIT` | `app/modules/m5_versions/stale.py` | `tests/test_versions.py::test_stale_submit_rejected` |
 | TRAP-27 | 同一环按起点轮转被重复计为多个环 | 环内每个成员各报一次，3 元环报 3 个环，环数虚高 | 环键取成员集合摘要，一个强连通分量只出一个环；轮转次数单列成对照 | `app/modules/m7_retire/cycles.py` | `tests/test_retire.py::test_ring_count_is_one_per_component` |
 | TRAP-28 | 孤立指标被误判为环 | 单点分量一律当环，21 个没有依赖边的指标全进阻断表 | 单点只有自环才算环；孤立指标单列，不进迁移次序 | `app/modules/m7_retire/order.py` | `tests/test_retire.py::test_isolated_nodes_are_not_rings` |
+| TRAP-29 | 指标改名后旧名称被新指标复用 | 按名称把历史分段并进同一身份：老定义的 `ref(旧名)` 被后来复用者接走，`A→B` 与 `B→A` 拼成假依赖环；旧报表也被并进新身份 | 身份只由 identity 决定，名称只在指定日期解析；旧报表按发布时间绑定；迁移别名按同一身份合并 | `app/modules/m8_identity/model.py`、`snapshot.py` | `tests/test_identity.py::test_rename_alias_does_not_fabricate_cycle`、`test_old_report_binds_to_old_identity_by_publish_time` |
+| TRAP-30 | 分批投递只到一半就切换 | 每个 BI 各自投递即改现网，半批映射把指标拆成两个身份，依赖与影响面忽大忽小 | 批次声明 expected_sources，缺来源保持 pending；整批无冲突且账目平才单条 UPSERT 切换 | `app/modules/m8_identity/service.py` | `tests/test_identity.py::test_round_incomplete_keeps_previous_version` |
+| TRAP-31 | 同一批重试新增结果 | 网络重试把同一批写入两次，条目翻倍、指纹变化、现网被无意义重刷 | 同批同来源按内容指纹判重：一致直接返回原投递，不一致 409 `I_DELIVERY_CONFLICT`；更早批次不覆盖现网 | `app/modules/m8_identity/service.py`、`model.py` | `tests/test_identity.py::test_replay_same_delivery_adds_no_result`、`test_older_round_replay_does_not_roll_back_live` |
+| TRAP-32 | 旧批次补交一个来源后盖掉新批次 | 批次次序按最后一次投递算，旧批次补交变「最新」，把已上线的新版本顶回去 | 批次次序取开户时点（最早一次投递）；现网次序更大时不覆盖，记 `I_ROUND_SUPERSEDED` | `app/modules/m8_identity/service.py` | `tests/test_identity.py::test_late_source_on_old_round_does_not_override_newer_round` |
 
 ## 四账
 
@@ -52,6 +57,8 @@
 - 不变量：`tests/test_ingest.py::test_idempotent_rerun_adds_no_rows`（幂等）、`tests/test_impact.py::test_four_accounts_balance`（守恒）、`tests/test_tarjan.py::test_component_partition_is_total`（分量划分不重不漏）。
 - 反例（M7）：`tests/test_retire_cycles.py::test_one_ring_per_component_not_per_start`（3 元环按起点会报 3 个）、`tests/test_retire_cycles.py::test_isolated_singleton_without_self_loop_is_not_ring`（单点无自环不是环）、`tests/test_impact.py::test_downstream_excludes_self_reference`（自环不算下游）。
 - 不变量（M7）：`tests/test_retire.py::test_affected_is_split_between_order_and_blocked`（受影响 = 可排序 + 阻断）、`tests/test_retire_cycles.py::test_kahn_order_ignores_insertion_order`（次序与插入顺序无关）、`tests/test_retire_cycles.py::test_two_disjoint_rings_count_two`（环成员不重不漏）。
+- 反例（M8）：`tests/test_identity.py::test_rename_alias_does_not_fabricate_cycle`（更名迁移别名曾被并成 A→B→A 假环）、`tests/test_identity.py::test_old_report_binds_to_old_identity_by_publish_time`（旧报表曾被并进复用同名的新身份）。
+- 不变量（M8）：`tests/test_identity.py::test_replay_same_delivery_adds_no_result`（同批原样重试不新增结果）、`tests/test_identity.py::test_round_incomplete_keeps_previous_version`（未齐保留上一版）、`tests/test_identity.py::test_older_round_replay_does_not_roll_back_live`（重放旧批不回退现网）。
 - 端到端：`tests/test_e2e.py::test_pipeline_from_sample_to_export`。
 
 ## 已知不覆盖
@@ -64,3 +71,7 @@
 - M7 只出计划不改数据：不写回注册表、不自动改报表，迁移清单导出 CSV 交人工执行。
 - 迁移次序按指标→指标边排，不细分报表内部的字段级改动；报表只作为受影响清单出现。
 - 下线请求台账只认 metric/reason/owner/requested_on 四列，不校验申请人与审批状态。
+- 身份映射只维护名称分段，不推断「同一 BI 内名称不变即同一身份」；没有映射的名称按
+  `name:<名称>` 兜底，宁可分成两个身份也不并错。
+- 现网槽位只保留一版（当前生效），不保留历史现网；需要复算时重放原批次。
+- 报表发布时间缺失时按评估日解析，非法时不猜；不做报表内部字段级改名迁移。

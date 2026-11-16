@@ -1,0 +1,7 @@
+identity,name,valid_from,valid_to,source
+I-SALES,销售总额,2025-01-01,2026-03-01,BI-报表
+I-SALES,销售额,2026-03-01,2026-09-01,BI-报表
+I-SALES-NEW,销售额,2026-09-01,,BI-看板
+I-SALES-NEW,新销售额,2025-01-01,2026-09-01,BI-看板
+I-PROFIT,毛利额,2025-01-01,,BI-报表
+I-PRICE,客单价,2025-01-01,,BI-报表

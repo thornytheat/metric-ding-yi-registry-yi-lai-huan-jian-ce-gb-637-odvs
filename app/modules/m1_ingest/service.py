@@ -172,6 +172,12 @@ def run(settings, store, *, text: str | None = None,
         "totals": totals,
         "manifest": manifest_payload,
     })
+
+    # 定义批次更新后重算现网身份快照：映射不变，依赖与影响面整体替换。
+    # 现网刷新失败不能回滚已落库的解析批次，也不能把现网改回半成品。
+    from ..m8_identity import service as identity_service
+    identity_service.refresh_live(store, settings)
+
     return {"status": "done", "reused": False, "batch": batch,
             "counters": totals, "stages": stages,
             "accounts": accounts_result, "diagnostics": diagnostics}

@@ -48,10 +48,54 @@ def test_pipeline_from_sample_to_export(client):
     assert manifest["batch_id"] == batch_id
     assert len(manifest["manifest"]["inputs"]) == 3
 
-    for page in ("/", "/contract", "/diagnostics", "/graph", "/versions", "/impact"):
+    for page in ("/", "/contract", "/diagnostics", "/graph", "/versions", "/impact",
+                 "/retire", "/identity"):
         response = client.get(page)
         assert response.status_code == 200
         assert "metricreg" in response.text
+
+
+def test_identity_sample_batches_promote_only_when_complete(client):
+    """端到端：样例映射按两个 BI 分批投递，第一批发完仍待收齐，第二批到齐才切换。"""
+    from app.modules.m8_identity import service as identity
+
+    assert client.post("/api/import", json={}).status_code == 200
+    settings = client.app.state.settings
+    payloads = identity.sample_payloads(settings)
+    assert [item["source"] for item in payloads] == ["BI-报表", "BI-看板"]
+
+    first = client.post("/api/identity/deliver", json=payloads[0]).json()
+    assert first["status"] == "pending"
+    assert first["promoted"] is False
+    assert first["missing_sources"] == ["BI-看板"]
+    assert client.get("/api/identity/live").status_code == 404
+
+    second = client.post("/api/identity/deliver", json=payloads[1]).json()
+    assert second["status"] == "promoted"
+    assert second["promoted"] is True
+    live = client.get("/api/identity/live").json()
+    assert live["round_id"] == "sample"
+
+    old = client.get("/api/identity/lookup",
+                     params={"name": "销售额", "published_on": "2026-05-01"}).json()
+    new = client.get("/api/identity/lookup",
+                     params={"name": "销售额", "published_on": "2026-10-01"}).json()
+    assert old["identity"] == "I-SALES"
+    assert new["identity"] == "I-SALES-NEW"
+    assert old["identity"] != new["identity"]
+
+    reports = client.get("/api/identity/reports").json()
+    by_id = {row["report_id"]: row for row in reports["rows"]}
+    assert by_id["R-01"]["identity"] == "I-SALES"
+    assert by_id["R-01"]["status"] == "bound"
+    assert by_id["R-10"]["status"] == "unregistered"
+
+    # 同批同来源原样重试：批次与投递都不新增
+    replay = client.post("/api/identity/deliver", json=payloads[1]).json()
+    assert replay["reused"] is True
+    assert "I_ROUND_REPLAY" in [item["code"] for item in replay["diagnostics"]]
+    assert client.get("/api/identity/rounds").json()["count"] == 1
+    assert len(client.app.state.store.list_deliveries("sample")) == 2
 
 
 def test_failure_inputs_return_4xx(client):
